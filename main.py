@@ -1,12 +1,31 @@
 import os
+import asyncio
 from pathlib import Path
 
 import disnake
 from disnake.ext import commands
 from dotenv import load_dotenv
+from aiohttp import web
 
 BASE_DIR = Path(__file__).parent
 COGS_DIR = BASE_DIR / "cogs"
+
+
+# --- Фейковый веб-сервер для проходимости Health Check на Render ---
+async def handle_ping(request):
+    return web.Response(text="Bot is alive!", status=200)
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Render автоматически передает случайный номер порта в $PORT
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Web server started on port {port}")
 
 
 def create_bot() -> commands.Bot:
@@ -31,10 +50,18 @@ def create_bot() -> commands.Bot:
     return bot
 
 
-if __name__ == "__main__":
-    bot = create_bot()
+async def main():
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         raise RuntimeError("Set DISCORD_TOKEN in your environment or .env file.")
-    bot.run(token)
 
+    # 1. Запускаем веб-сервер, чтобы Render прошёл сканирование портов
+    await start_web_server()
+
+    # 2. Запускаем бота через асинхронный старт вместо bot.run()
+    bot = create_bot()
+    await bot.start(token)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
